@@ -115,16 +115,29 @@ pm2 startup
 ```
 AI-CLI-Bridge/
 ├── src/
-│   ├── index.ts      # Entry - multi-platform launcher
-│   ├── core.ts       # Core - streaming handler, message splitting
+│   ├── index.ts      # Entry - multi-platform launcher, graceful shutdown
+│   ├── core.ts       # Core - streaming handler, auth pre-check, message splitting
 │   ├── adapters.ts   # CLI adapters - supports multiple AI CLIs
-│   ├── session.ts    # Session management
+│   ├── session.ts    # Session management, concurrency control, rate limiting
 │   ├── commands.ts   # Discord slash commands
 │   ├── lark.ts       # Feishu/Lark adapter
 │   └── setup.ts      # Interactive setup wizard
+├── tests/
+│   ├── session.test.ts   # Session, auth, rate limit, concurrency tests
+│   ├── core.test.ts      # Message splitting, pre-check tests
+│   ├── adapters.test.ts  # CLI adapter routing, stream parsing tests
+│   └── lark.test.ts      # Feishu card building tests
 ├── .env.example      # Config template
+├── vitest.config.ts  # Test configuration
 ├── package.json
 └── tsconfig.json
+```
+
+## Testing
+
+```bash
+npm test             # Run all tests (67 cases)
+npm run test:watch   # Watch mode for development
 ```
 
 ## Security

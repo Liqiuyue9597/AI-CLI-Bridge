@@ -134,9 +134,22 @@ AI-CLI-Bridge/
 │   ├── commands.ts   # Discord 斜杠命令定义
 │   ├── lark.ts       # 飞书适配层
 │   └── setup.ts      # 交互式配置向导
+├── tests/
+│   ├── session.test.ts   # 会话、鉴权、速率限制、并发控制测试
+│   ├── core.test.ts      # 消息分割、前置检查测试
+│   ├── adapters.test.ts  # CLI 适配器路由、流解析测试
+│   └── lark.test.ts      # 飞书卡片构建测试
 ├── .env.example      # 配置模板
+├── vitest.config.ts  # 测试配置
 ├── package.json
 └── tsconfig.json
+```
+
+## 测试
+
+```bash
+npm test             # 运行全部测试（67 个用例）
+npm run test:watch   # 开发时 watch 模式
 ```
 
 ## 环境变量
