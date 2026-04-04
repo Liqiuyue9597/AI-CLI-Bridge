@@ -1,6 +1,11 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
-import { runClaudeStream, type StreamTarget } from "./core.js";
+import { runClaudeStream, preCheck, type StreamTarget } from "./core.js";
 import { sessionManager } from "./session.js";
+
+// ── 飞书频道白名单 ──────────────────────────────────────────
+const ALLOWED_LARK_CHATS = process.env.ALLOWED_LARK_CHATS
+  ? new Set(process.env.ALLOWED_LARK_CHATS.split(",").map((s) => s.trim()))
+  : null;
 
 /**
  * 构建飞书卡片消息 JSON
@@ -45,28 +50,39 @@ export async function startLark() {
     loggerLevel: Lark.LoggerLevel.info,
   });
 
-  // 消息去重
-  const processedMessages = new Set<string>();
+  // 消息去重：用 Map 记录时间戳，支持按时间过期清理
+  const processedMessages = new Map<string, number>();
+  const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 分钟过期
+
+  /** 定期清理过期的去重记录 */
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, timestamp] of processedMessages) {
+      if (now - timestamp > DEDUP_TTL_MS) {
+        processedMessages.delete(id);
+      }
+    }
+  }, 60_000);
 
   wsClient.start({
     eventDispatcher: new Lark.EventDispatcher({}).register({
-      "im.message.receive_v1": async (data: any) => {
+      "im.message.receive_v1": async (data: Record<string, any>) => {
         try {
           const message = data.message;
           const messageId = message.message_id;
 
           // 去重
           if (processedMessages.has(messageId)) return;
-          processedMessages.add(messageId);
-          if (processedMessages.size > 1000) {
-            const arr = [...processedMessages];
-            arr.splice(0, 500).forEach((id) => processedMessages.delete(id));
-          }
+          processedMessages.set(messageId, Date.now());
 
           // 只处理文本消息
           if (message.message_type !== "text") return;
 
           const chatId = message.chat_id;
+
+          // 频道白名单
+          if (ALLOWED_LARK_CHATS && !ALLOWED_LARK_CHATS.has(chatId)) return;
+
           const senderId = data.sender?.sender_id?.open_id || "unknown";
           const senderName = data.sender?.sender_id?.open_id || "飞书用户";
 
@@ -83,7 +99,42 @@ export async function startLark() {
           const prompt = content.replace(/@_user_\d+/g, "").trim();
           if (!prompt) return;
 
-          console.log(`[飞书] ${senderName}: ${prompt.slice(0, 50)}...`);
+          console.log(`[飞书] [${senderId}] ${senderName}: ${prompt.slice(0, 50)}...`);
+
+          // 内置命令：whoami — 返回用户 ID，方便配置白名单
+          if (prompt.toLowerCase() === "whoami") {
+            try {
+              await client.im.message.reply({
+                path: { message_id: messageId },
+                data: {
+                  content: JSON.stringify({
+                    text: `你的飞书 Open ID: ${senderId}\n群聊 Chat ID: ${chatId}\n\n将 Open ID 添加到 .env 的 ALLOWED_USERS 即可获得使用权限。`,
+                  }),
+                  msg_type: "text",
+                },
+              });
+            } catch (err) {
+              console.warn("[飞书] 发送 whoami 回复失败:", (err as Error).message);
+            }
+            return;
+          }
+
+          // 前置检查（鉴权、速率限制、并发控制）
+          const check = preCheck(senderId);
+          if (!check.ok) {
+            try {
+              await client.im.message.reply({
+                path: { message_id: messageId },
+                data: {
+                  content: JSON.stringify({ text: check.message }),
+                  msg_type: "text",
+                },
+              });
+            } catch (err) {
+              console.warn("[飞书] 发送拒绝消息失败:", (err as Error).message);
+            }
+            return;
+          }
 
           const existingSession = sessionManager.getSession(senderId);
 
@@ -96,7 +147,6 @@ export async function startLark() {
               lastText = text;
               try {
                 if (!replyMessageId) {
-                  // 首次：发送卡片消息（reply 到原消息）
                   const res = await client.im.message.reply({
                     path: { message_id: messageId },
                     data: {
@@ -106,7 +156,6 @@ export async function startLark() {
                   });
                   replyMessageId = res.data?.message_id || null;
                 } else {
-                  // 后续：patch 更新卡片内容
                   await client.im.message.patch({
                     path: { message_id: replyMessageId },
                     data: {
@@ -114,11 +163,11 @@ export async function startLark() {
                     },
                   });
                 }
-              } catch (err: any) {
-                // 忽略频率限制等非致命错误
-                const code = err?.response?.data?.code;
+              } catch (err: unknown) {
+                const larkErr = err as { response?: { data?: { code?: number; msg?: string } } };
+                const code = larkErr?.response?.data?.code;
                 if (code && code !== 230001) {
-                  console.error("[飞书] 更新消息失败:", code, err?.response?.data?.msg);
+                  console.warn("[飞书] 更新消息失败:", code, larkErr?.response?.data?.msg);
                 }
               }
             },
@@ -133,7 +182,7 @@ export async function startLark() {
                   },
                 });
               } catch (err) {
-                console.error("[飞书] 发送后续消息失败:", err);
+                console.warn("[飞书] 发送后续消息失败:", (err as Error).message);
               }
             },
           };
@@ -155,7 +204,9 @@ export async function startLark() {
                   content: buildCard(lastText, false),
                 },
               });
-            } catch {}
+            } catch (err) {
+              console.warn("[飞书] 更新完成状态失败:", (err as Error).message);
+            }
           }
         } catch (err) {
           console.error("[飞书] 处理消息异常:", err);

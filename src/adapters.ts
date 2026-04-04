@@ -8,6 +8,34 @@ export interface CLIStreamEvent {
   sessionId?: string;
 }
 
+// ── Claude JSON 流式输出类型 ─────────────────────────────────
+interface ClaudeTextBlock {
+  type: "text";
+  text: string;
+}
+
+interface ClaudeToolUseBlock {
+  type: "tool_use";
+  name?: string;
+  input?: Record<string, unknown>;
+}
+
+type ClaudeContentBlock = ClaudeTextBlock | ClaudeToolUseBlock;
+
+interface ClaudeAssistantEvent {
+  type: "assistant";
+  message?: {
+    content: ClaudeContentBlock[];
+  };
+}
+
+interface ClaudeResultEvent {
+  type: "result";
+  result?: string;
+}
+
+type ClaudeStreamJSON = ClaudeAssistantEvent | ClaudeResultEvent;
+
 /**
  * CLI 适配器接口 - 不同的 AI CLI 工具实现这个接口
  */
@@ -18,8 +46,6 @@ interface CLIAdapter {
   buildArgs(options: { sessionId: string; isResume: boolean; workDir: string }): string[];
   /** 解析 stdout 的一行输出，返回事件或 null */
   parseLine(line: string, state: ParseState): CLIStreamEvent | CLIStreamEvent[] | null;
-  /** 获取系统提示（可选，某些 CLI 不支持） */
-  getSystemPromptArgs?(workDir: string): string[];
 }
 
 interface ParseState {
@@ -39,8 +65,12 @@ const claudeAdapter: CLIAdapter = {
       "-p",
       "--output-format", "stream-json",
       "--verbose",
-      "--dangerously-skip-permissions",
     ];
+
+    // 仅在用户显式启用时跳过权限检查（默认安全）
+    if (process.env.SKIP_PERMISSIONS === "true") {
+      args.push("--dangerously-skip-permissions");
+    }
 
     // 系统提示
     args.push("--append-system-prompt", buildSystemPrompt(workDir));
@@ -54,11 +84,16 @@ const claudeAdapter: CLIAdapter = {
   },
 
   parseLine(line, state) {
-    const data = JSON.parse(line);
+    let data: ClaudeStreamJSON;
+    try {
+      data = JSON.parse(line) as ClaudeStreamJSON;
+    } catch {
+      return null;
+    }
+
     const events: CLIStreamEvent[] = [];
 
     if (data.type === "assistant" && data.message?.content) {
-      // 用 block 在数组中的索引来独立跟踪每个 text block
       let blockIndex = 0;
       for (const block of data.message.content) {
         if (block.type === "text" && block.text) {
@@ -79,13 +114,13 @@ const claudeAdapter: CLIAdapter = {
           events.push({ type: "tool", content: hint, sessionId: state.sessionId });
         }
       }
-      // 重建完整文本（所有 text block 拼接）
       state.fullText = Array.from(state.blockTexts.values()).join("");
     } else if (data.type === "result") {
-      if (data.result && state.fullText === "") {
-        events.push({ type: "text", content: data.result, sessionId: state.sessionId });
+      const resultData = data as ClaudeResultEvent;
+      if (resultData.result && state.fullText === "") {
+        events.push({ type: "text", content: resultData.result, sessionId: state.sessionId });
       }
-      events.push({ type: "done", content: state.fullText || data.result || "", sessionId: state.sessionId });
+      events.push({ type: "done", content: state.fullText || resultData.result || "", sessionId: state.sessionId });
     }
 
     return events.length > 0 ? events : null;
@@ -96,16 +131,11 @@ const claudeAdapter: CLIAdapter = {
 const codexAdapter: CLIAdapter = {
   name: "codex",
 
-  buildArgs({ workDir }) {
-    // codex 的参数格式: codex -q --full-auto
-    return [
-      "-q",                    // quiet mode (非交互)
-      "--full-auto",           // 全自动模式
-    ];
+  buildArgs() {
+    return ["-q", "--full-auto"];
   },
 
   parseLine(line, state) {
-    // codex 输出是纯文本，逐行累积
     if (!line.trim()) return null;
     state.fullText += line + "\n";
     return { type: "text", content: line + "\n", sessionId: state.sessionId };
@@ -116,13 +146,26 @@ const codexAdapter: CLIAdapter = {
 const geminiAdapter: CLIAdapter = {
   name: "gemini",
 
-  buildArgs({ workDir }) {
-    // gemini cli: gemini -p (非交互)
+  buildArgs() {
     return [];
   },
 
   parseLine(line, state) {
-    // gemini 输出也是纯文本
+    if (!line.trim()) return null;
+    state.fullText += line + "\n";
+    return { type: "text", content: line + "\n", sessionId: state.sessionId };
+  },
+};
+
+// ── 纯文本 Fallback 适配器（兼容未知 CLI）────────────────────
+const plainTextAdapter: CLIAdapter = {
+  name: "plain-text",
+
+  buildArgs() {
+    return [];
+  },
+
+  parseLine(line, state) {
     if (!line.trim()) return null;
     state.fullText += line + "\n";
     return { type: "text", content: line + "\n", sessionId: state.sessionId };
@@ -142,35 +185,16 @@ const ADAPTERS: Record<string, CLIAdapter> = {
  * 根据 CLI 路径自动匹配适配器
  */
 function getAdapter(cliPath: string): CLIAdapter {
-  // 从路径中提取命令名
   const cmdName = cliPath.split("/").pop()?.toLowerCase() || "";
 
-  // 精确匹配
   if (ADAPTERS[cmdName]) return ADAPTERS[cmdName];
 
-  // 模糊匹配
   for (const [key, adapter] of Object.entries(ADAPTERS)) {
     if (cmdName.includes(key)) return adapter;
   }
 
-  // 默认使用纯文本适配器（fallback，兼容任意 CLI）
   return plainTextAdapter;
 }
-
-// ── 纯文本 Fallback 适配器（兼容未知 CLI）────────────────────
-const plainTextAdapter: CLIAdapter = {
-  name: "plain-text",
-
-  buildArgs() {
-    return [];
-  },
-
-  parseLine(line, state) {
-    if (!line.trim()) return null;
-    state.fullText += line + "\n";
-    return { type: "text", content: line + "\n", sessionId: state.sessionId };
-  },
-};
 
 // ── 工具函数 ─────────────────────────────────────────────────
 function getWorkDir(): string {
@@ -178,7 +202,13 @@ function getWorkDir(): string {
 }
 
 function getCLIPath(): string {
-  return process.env.CLI_PATH || process.env.CLAUDE_CLI_PATH || "claude";
+  return process.env.CLI_PATH || "claude";
+}
+
+/** 子进程超时时间（毫秒），默认 5 分钟 */
+function getCLITimeout(): number {
+  const val = parseInt(process.env.CLI_TIMEOUT_MS || "", 10);
+  return val > 0 ? val : 5 * 60 * 1000;
 }
 
 function buildSystemPrompt(workDir: string): string {
@@ -197,19 +227,33 @@ function buildSystemPrompt(workDir: string): string {
 - 如果任务复杂，先简要说明计划再执行`;
 }
 
-function formatToolUse(block: any): string {
+function formatToolUse(block: ClaudeToolUseBlock): string {
   const toolName = block.name || "tool";
   let toolDesc = "";
-  if (toolName === "Bash" && block.input?.command) {
-    toolDesc = `\`${block.input.command.slice(0, 80)}\``;
-  } else if ((toolName === "Read" || toolName === "Write" || toolName === "Edit") && block.input?.file_path) {
-    toolDesc = `\`${block.input.file_path}\``;
-  } else if ((toolName === "Glob" || toolName === "Grep") && block.input?.pattern) {
-    toolDesc = `\`${block.input.pattern}\``;
-  } else if (block.input?.description) {
-    toolDesc = block.input.description;
+  const input = block.input as Record<string, string> | undefined;
+
+  if (toolName === "Bash" && input?.command) {
+    toolDesc = `\`${input.command.slice(0, 80)}\``;
+  } else if ((toolName === "Read" || toolName === "Write" || toolName === "Edit") && input?.file_path) {
+    toolDesc = `\`${input.file_path}\``;
+  } else if ((toolName === "Glob" || toolName === "Grep") && input?.pattern) {
+    toolDesc = `\`${input.pattern}\``;
+  } else if (input?.description) {
+    toolDesc = String(input.description);
   }
   return toolDesc ? `> **${toolName}**: ${toolDesc}\n` : `> **${toolName}**\n`;
+}
+
+// ── 活跃子进程追踪（用于 graceful shutdown）──────────────────
+const activeChildren = new Set<ChildProcess>();
+
+/** 终止所有活跃子进程 */
+export function killAllChildren(): void {
+  for (const child of activeChildren) {
+    if (child.exitCode === null) {
+      child.kill("SIGTERM");
+    }
+  }
 }
 
 // ── 主函数：流式调用 CLI ─────────────────────────────────────
@@ -236,6 +280,20 @@ export async function* streamCLI(
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env },
   });
+
+  activeChildren.add(child);
+
+  // 子进程超时自动 kill
+  const timeoutMs = getCLITimeout();
+  const timeout = setTimeout(() => {
+    if (child.exitCode === null) {
+      console.warn(`[${adapter.name}] 子进程超时 (${timeoutMs}ms)，强制终止`);
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (child.exitCode === null) child.kill("SIGKILL");
+      }, 3000);
+    }
+  }, timeoutMs);
 
   // 写入 prompt
   if (child.stdin) {
@@ -272,7 +330,6 @@ export async function* streamCLI(
           events.forEach(push);
         }
       } catch {
-        // 非 JSON / 解析失败的行，尝试当纯文本处理
         if (adapter.name !== "claude") {
           state.fullText += line + "\n";
           push({ type: "text", content: line + "\n", sessionId });
@@ -284,7 +341,6 @@ export async function* streamCLI(
   child.stderr?.on("data", (chunk: Buffer) => {
     const msg = chunk.toString("utf-8");
     if (msg.includes("Error") || msg.includes("error")) {
-      // 只取第一行有意义的错误信息，避免将 minified 源码等大量内容透传给用户
       const firstMeaningfulLine =
         msg.split("\n").find((l) => l.trim().length > 0) || msg;
       const summary =
@@ -296,6 +352,8 @@ export async function* streamCLI(
   });
 
   child.on("close", (code) => {
+    clearTimeout(timeout);
+    activeChildren.delete(child);
     if (!done) {
       if (code !== 0 && textQueue.length === 0) {
         push({ type: "error", content: `${cliPath} exited with code ${code}`, sessionId });
@@ -309,20 +367,24 @@ export async function* streamCLI(
   });
 
   // AsyncGenerator yield loop
-  while (true) {
-    if (textQueue.length > 0) {
-      const event = textQueue.shift()!;
-      yield event;
-      if (event.type === "done" || event.type === "error") break;
-    } else if (done) {
-      break;
-    } else {
-      await new Promise<void>((r) => { resolve = r; });
+  try {
+    while (true) {
+      if (textQueue.length > 0) {
+        const event = textQueue.shift()!;
+        yield event;
+        if (event.type === "done" || event.type === "error") break;
+      } else if (done) {
+        break;
+      } else {
+        await new Promise<void>((r) => { resolve = r; });
+      }
     }
-  }
-
-  if (child.exitCode === null) {
-    child.kill();
+  } finally {
+    clearTimeout(timeout);
+    activeChildren.delete(child);
+    if (child.exitCode === null) {
+      child.kill();
+    }
   }
 }
 

@@ -13,6 +13,7 @@
 - **工具可见** — 实时显示 AI 正在执行的命令（读文件、跑脚本等）
 - **私聊 + 群聊** — 私聊直接对话，群聊 @机器人 触发
 - **交互式配置** — `npm run setup` 一键引导配置
+- **安全防护** — 用户白名单、速率限制、并发控制、子进程超时
 
 ## 架构
 
@@ -20,7 +21,7 @@
 手机 / 电脑
   │
   ├── Discord  ──┐
-  │              ├──> Claude Bridge (本地/云端) ──> AI CLI ──> 操作文件系统
+  │              ├──> AI CLI Bridge (本地/云端) ──> AI CLI ──> 操作文件系统
   └── 飞书    ──┘
 ```
 
@@ -40,6 +41,17 @@ npm run setup
 # 4. 启动
 npm start
 ```
+
+## 安全说明
+
+> **此工具允许聊天平台用户在你的机器上执行命令。请务必重视安全配置。**
+
+- **务必设置 `ALLOWED_USERS`** — 限制哪些用户 ID 可以使用 Bot
+  - Discord: 开启开发者模式 → 右键自己头像 → 复制用户 ID
+  - 飞书: 启动 Bot 后发送 `whoami` 获取你的 Open ID（`ou_xxx`）
+- **`SKIP_PERMISSIONS`** 默认为 `false` — Claude 会在执行危险操作前请求确认。仅在完全信任所有用户时才设为 `true`
+- **不要提交 `.env` 文件** — 其中包含你的密钥，`.gitignore` 已排除该文件
+- **速率限制** 默认开启（每用户每分钟 5 次请求）以防止滥用
 
 ## 配置说明
 
@@ -111,10 +123,10 @@ pm2 startup  # 设置开机自启
 ```
 AI-CLI-Bridge/
 ├── src/
-│   ├── index.ts      # 入口 - 多平台启动
-│   ├── core.ts       # 核心 - 流式处理、消息分割
-│   ├── claude.ts     # CLI 适配器 - 支持多种 AI CLI
-│   ├── session.ts    # 会话管理
+│   ├── index.ts      # 入口 - 多平台启动、graceful shutdown
+│   ├── core.ts       # 核心 - 流式处理、鉴权、消息分割
+│   ├── adapters.ts   # CLI 适配器 - 支持多种 AI CLI
+│   ├── session.ts    # 会话管理、并发控制、速率限制
 │   ├── commands.ts   # Discord 斜杠命令定义
 │   ├── lark.ts       # 飞书适配层
 │   └── setup.ts      # 交互式配置向导
@@ -131,9 +143,15 @@ AI-CLI-Bridge/
 | `DISCORD_APP_ID` | 可选 | Discord Application ID |
 | `LARK_APP_ID` | 可选 | 飞书 App ID |
 | `LARK_APP_SECRET` | 可选 | 飞书 App Secret |
-| `CLI_PATH` | 可选 | AI CLI 路径，默认 `claude-internal` |
+| `CLI_PATH` | 可选 | AI CLI 路径，默认 `claude` |
 | `CLAUDE_WORK_DIR` | 可选 | 工作目录，默认 `$HOME` |
 | `ALLOWED_CHANNELS` | 可选 | Discord 频道白名单（逗号分隔） |
+| `ALLOWED_LARK_CHATS` | 可选 | 飞书群聊白名单（逗号分隔） |
+| `ALLOWED_USERS` | **建议** | 用户 ID 白名单（逗号分隔），不设则允许所有人 |
+| `SKIP_PERMISSIONS` | 可选 | 设为 `true` 跳过 Claude 权限检查（危险！） |
+| `CLI_TIMEOUT_MS` | 可选 | CLI 子进程超时（毫秒），默认 `300000`（5 分钟） |
+| `RATE_LIMIT_WINDOW_MS` | 可选 | 速率限制窗口（毫秒），默认 `60000`（1 分钟） |
+| `RATE_LIMIT_MAX` | 可选 | 每窗口每用户最大请求数，默认 `5` |
 
 ## License
 

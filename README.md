@@ -113,7 +113,7 @@ AI-CLI-Bridge/
 ├── src/
 │   ├── index.ts      # Entry - multi-platform launcher
 │   ├── core.ts       # Core - streaming handler, message splitting
-│   ├── claude.ts     # CLI adapters - supports multiple AI CLIs
+│   ├── adapters.ts   # CLI adapters - supports multiple AI CLIs
 │   ├── session.ts    # Session management
 │   ├── commands.ts   # Discord slash commands
 │   ├── lark.ts       # Feishu/Lark adapter
@@ -122,6 +122,17 @@ AI-CLI-Bridge/
 ├── package.json
 └── tsconfig.json
 ```
+
+## Security
+
+> **This tool gives chat platform users the ability to execute commands on your machine.** Take security seriously.
+
+- **Always set `ALLOWED_USERS`** to restrict which user IDs can interact with the bot
+  - Discord: Enable Developer Mode → right-click your avatar → Copy User ID
+  - Feishu/Lark: Send `whoami` to the bot to get your Open ID (`ou_xxx`)
+- **`SKIP_PERMISSIONS`** is `false` by default — Claude will ask for confirmation before dangerous operations. Only set to `true` if you fully trust all allowed users
+- **Never commit `.env`** — it contains your secrets. The `.gitignore` already excludes it
+- **Rate limiting** is enabled by default (5 requests/minute per user) to prevent abuse
 
 ## Environment Variables
 
@@ -134,6 +145,12 @@ AI-CLI-Bridge/
 | `CLI_PATH` | Optional | AI CLI path, defaults to `claude` |
 | `CLAUDE_WORK_DIR` | Optional | Working directory, defaults to `$HOME` |
 | `ALLOWED_CHANNELS` | Optional | Discord channel whitelist (comma-separated) |
+| `ALLOWED_LARK_CHATS` | Optional | Feishu chat whitelist (comma-separated) |
+| `ALLOWED_USERS` | **Recommended** | User ID whitelist (comma-separated). Unset = allow all |
+| `SKIP_PERMISSIONS` | Optional | Set `true` to skip Claude permission checks (dangerous!) |
+| `CLI_TIMEOUT_MS` | Optional | CLI subprocess timeout in ms, defaults to `300000` (5 min) |
+| `RATE_LIMIT_WINDOW_MS` | Optional | Rate limit window in ms, defaults to `60000` (1 min) |
+| `RATE_LIMIT_MAX` | Optional | Max requests per window per user, defaults to `5` |
 
 ## License
 

@@ -1,4 +1,4 @@
-import { streamClaude } from "./claude.js";
+import { streamClaude } from "./adapters.js";
 import { sessionManager } from "./session.js";
 
 // ── 常量 ─────────────────────────────────────────────────────
@@ -11,6 +11,36 @@ export interface StreamTarget {
   update: (content: string) => Promise<void>;
   /** 发送后续分割消息 */
   followUp: (content: string) => Promise<void>;
+}
+
+/** 前置检查结果 */
+export interface PreCheckResult {
+  ok: boolean;
+  /** 如果 ok === false，返回给用户的提示消息 */
+  message?: string;
+}
+
+/**
+ * 在执行 CLI 调用前进行鉴权、速率限制和并发检查
+ */
+export function preCheck(userId: string): PreCheckResult {
+  // 用户白名单鉴权
+  if (!sessionManager.isUserAllowed(userId)) {
+    return { ok: false, message: "你没有权限使用此 Bot。请联系管理员将你的用户 ID 添加到 ALLOWED_USERS。" };
+  }
+
+  // 速率限制
+  const waitSeconds = sessionManager.checkRateLimit(userId);
+  if (waitSeconds !== null) {
+    return { ok: false, message: `请求过于频繁，请 ${waitSeconds} 秒后再试。` };
+  }
+
+  // 并发控制
+  if (!sessionManager.tryAcquire(userId)) {
+    return { ok: false, message: "你的上一个请求还在处理中，请等它完成后再试。" };
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -49,7 +79,6 @@ export async function runClaudeStream(
         if (now - lastUpdateTime >= STREAM_UPDATE_INTERVAL_MS) {
           lastUpdateTime = now;
           const full = getDisplayText() + " ▌";
-          // 流式更新时截断过长文本，只保留末尾（最新内容）
           const display =
             full.length > MAX_MESSAGE_LENGTH
               ? "...\n\n" + full.slice(full.length - MAX_MESSAGE_LENGTH + 5)
@@ -76,7 +105,6 @@ export async function runClaudeStream(
           resultSessionId = event.sessionId;
         }
       } else if (event.type === "error") {
-        // 截断过长的错误信息（如 CLI Node 版本不兼容时 stderr 可能带有大量 minified 代码）
         const errMsg =
           event.content.length > 300
             ? event.content.slice(0, 300) + "…"
@@ -86,6 +114,9 @@ export async function runClaudeStream(
     }
   } catch (err) {
     accumulated += `\n\n> **Error:** ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    // 无论成功还是失败，都释放并发锁
+    sessionManager.release(userId);
   }
 
   if (resultSessionId) {
@@ -119,12 +150,14 @@ export function splitMessage(text: string, maxLength = MAX_MESSAGE_LENGTH): stri
     }
 
     let splitIndex = remaining.lastIndexOf("\n", maxLength);
-    if (splitIndex <= 0) {
+    if (splitIndex < 1) {
+      // 没有找到合适的换行符，或者换行符在最开头，则硬切
       splitIndex = maxLength;
     }
 
     chunks.push(remaining.slice(0, splitIndex));
-    remaining = remaining.slice(splitIndex);
+    // 跳过换行符本身，避免下一段以 \n 开头
+    remaining = remaining.slice(splitIndex).replace(/^\n/, "");
   }
 
   return chunks;
