@@ -48,14 +48,25 @@ export async function runClaudeStream(
         const now = Date.now();
         if (now - lastUpdateTime >= STREAM_UPDATE_INTERVAL_MS) {
           lastUpdateTime = now;
-          await target.update(getDisplayText() + " ▌");
+          const full = getDisplayText() + " ▌";
+          // 流式更新时截断过长文本，只保留末尾（最新内容）
+          const display =
+            full.length > MAX_MESSAGE_LENGTH
+              ? "...\n\n" + full.slice(full.length - MAX_MESSAGE_LENGTH + 5)
+              : full;
+          await target.update(display);
         }
       } else if (event.type === "tool") {
         toolStatus = event.content + "⏳ _执行中..._";
         if (event.sessionId) {
           resultSessionId = event.sessionId;
         }
-        await target.update(getDisplayText());
+        const toolDisplay = getDisplayText();
+        const truncatedToolDisplay =
+          toolDisplay.length > MAX_MESSAGE_LENGTH
+            ? "...\n\n" + toolDisplay.slice(toolDisplay.length - MAX_MESSAGE_LENGTH + 5)
+            : toolDisplay;
+        await target.update(truncatedToolDisplay);
         lastUpdateTime = Date.now();
       } else if (event.type === "done") {
         if (accumulated === "" && event.content) {
