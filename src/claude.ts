@@ -23,6 +23,9 @@ interface CLIAdapter {
 }
 
 interface ParseState {
+  /** 每个 text block 按索引独立跟踪已输出的文本 */
+  blockTexts: Map<number, string>;
+  /** 所有 text block 的完整文本拼接（用于 done 事件） */
   fullText: string;
   sessionId: string;
 }
@@ -55,22 +58,29 @@ const claudeAdapter: CLIAdapter = {
     const events: CLIStreamEvent[] = [];
 
     if (data.type === "assistant" && data.message?.content) {
+      // 用 block 在数组中的索引来独立跟踪每个 text block
+      let blockIndex = 0;
       for (const block of data.message.content) {
         if (block.type === "text" && block.text) {
           const newText = block.text;
-          if (newText.length > state.fullText.length) {
-            const delta = newText.slice(state.fullText.length);
-            state.fullText = newText;
+          const prevText = state.blockTexts.get(blockIndex) || "";
+
+          if (newText.length > prevText.length) {
+            const delta = newText.slice(prevText.length);
+            state.blockTexts.set(blockIndex, newText);
             events.push({ type: "text", content: delta, sessionId: state.sessionId });
-          } else if (state.fullText === "") {
-            state.fullText = newText;
+          } else if (prevText === "" && newText.length > 0) {
+            state.blockTexts.set(blockIndex, newText);
             events.push({ type: "text", content: newText, sessionId: state.sessionId });
           }
+          blockIndex++;
         } else if (block.type === "tool_use") {
           const hint = formatToolUse(block);
           events.push({ type: "tool", content: hint, sessionId: state.sessionId });
         }
       }
+      // 重建完整文本（所有 text block 拼接）
+      state.fullText = Array.from(state.blockTexts.values()).join("");
     } else if (data.type === "result") {
       if (data.result && state.fullText === "") {
         events.push({ type: "text", content: data.result, sessionId: state.sessionId });
@@ -233,7 +243,7 @@ export async function* streamCLI(
     child.stdin.end();
   }
 
-  const state: ParseState = { fullText: "", sessionId };
+  const state: ParseState = { blockTexts: new Map(), fullText: "", sessionId };
   let buffer = "";
 
   const textQueue: CLIStreamEvent[] = [];
