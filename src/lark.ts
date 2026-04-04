@@ -10,7 +10,7 @@ const ALLOWED_LARK_CHATS = process.env.ALLOWED_LARK_CHATS
 /**
  * 构建飞书卡片消息 JSON
  */
-function buildCard(text: string, isStreaming: boolean): string {
+export function buildCard(text: string, isStreaming: boolean): string {
   return JSON.stringify({
     config: { wide_screen_mode: true },
     header: isStreaming

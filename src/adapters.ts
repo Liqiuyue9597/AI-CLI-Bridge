@@ -48,7 +48,7 @@ interface CLIAdapter {
   parseLine(line: string, state: ParseState): CLIStreamEvent | CLIStreamEvent[] | null;
 }
 
-interface ParseState {
+export interface ParseState {
   /** 每个 text block 按索引独立跟踪已输出的文本 */
   blockTexts: Map<number, string>;
   /** 所有 text block 的完整文本拼接（用于 done 事件） */
@@ -57,7 +57,7 @@ interface ParseState {
 }
 
 // ── Claude 适配器（claude / claude-internal）─────────────────
-const claudeAdapter: CLIAdapter = {
+export const claudeAdapter: CLIAdapter = {
   name: "claude",
 
   buildArgs({ sessionId, isResume, workDir }) {
@@ -184,7 +184,7 @@ const ADAPTERS: Record<string, CLIAdapter> = {
 /**
  * 根据 CLI 路径自动匹配适配器
  */
-function getAdapter(cliPath: string): CLIAdapter {
+export function getAdapter(cliPath: string): CLIAdapter {
   const cmdName = cliPath.split("/").pop()?.toLowerCase() || "";
 
   if (ADAPTERS[cmdName]) return ADAPTERS[cmdName];
@@ -227,7 +227,7 @@ function buildSystemPrompt(workDir: string): string {
 - 如果任务复杂，先简要说明计划再执行`;
 }
 
-function formatToolUse(block: ClaudeToolUseBlock): string {
+export function formatToolUse(block: ClaudeToolUseBlock): string {
   const toolName = block.name || "tool";
   let toolDesc = "";
   const input = block.input as Record<string, string> | undefined;

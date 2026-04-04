@@ -2,7 +2,7 @@
  * 会话管理器 - 管理用户会话、并发控制、速率限制
  */
 
-interface SessionInfo {
+export interface SessionInfo {
   sessionId: string;
   createdAt: number;
   lastUsedAt: number;
@@ -21,7 +21,7 @@ interface RateLimitEntry {
   timestamps: number[];
 }
 
-class SessionManager {
+export class SessionManager {
   private sessions = new Map<string, SessionInfo>();
 
   /** 用户正在处理中的请求锁 */
