@@ -111,11 +111,15 @@ npm start
 ## 后台运行
 
 ```bash
-# 使用 pm2 保活
-npm install -g pm2
-pm2 start "npx tsx src/index.ts" --name ai-cli-bridge
+# pm2 已作为项目依赖，npm install 时自动安装，无需全局安装
+npm run pm2          # 启动
+npm run pm2:stop     # 停止
+npm run pm2:restart  # 重启
+npm run pm2:logs     # 查看日志
+
+# 设置开机自启
 pm2 save
-pm2 startup  # 设置开机自启
+pm2 startup
 ```
 
 ## 项目结构

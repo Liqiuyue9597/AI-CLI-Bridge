@@ -6,11 +6,18 @@
   "scripts": {
     "setup": "tsx src/setup.ts",
     "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "pm2": "pm2 start npm --name ai-cli-bridge -- run start",
+    "pm2:stop": "pm2 stop ai-cli-bridge",
+    "pm2:restart": "pm2 restart ai-cli-bridge",
+    "pm2:logs": "pm2 logs ai-cli-bridge",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",
     "discord.js": "^14.16.3",
+    "pm2": "^6.0.0",
     "dotenv": "^16.4.7",
     "uuid": "^11.1.0"
   },
@@ -18,6 +25,7 @@
     "@types/node": "^22.10.0",
     "@types/uuid": "^10.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.2"
   }
 }

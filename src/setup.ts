@@ -221,7 +221,7 @@ async function main() {
     console.log("启动服务：");
     console.log("  npm start        # 启动");
     console.log("  npm run dev      # 开发模式（热重载）");
-    console.log("  pm2 start \"npx tsx src/index.ts\" --name ai-cli-bridge  # 后台保活");
+    console.log("  npm run pm2      # 后台保活（pm2 已随项目安装）");
     console.log("");
   } else {
     console.log("已取消。");

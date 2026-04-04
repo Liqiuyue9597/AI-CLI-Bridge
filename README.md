@@ -99,11 +99,15 @@ Run `npm run setup` to configure interactively, or manually create a `.env` file
 ## Running in Background
 
 ```bash
-# Using pm2 for process management
-npm install -g pm2
-pm2 start "npx tsx src/index.ts" --name ai-cli-bridge
+# pm2 is included as a project dependency, no global install needed
+npm run pm2          # Start with pm2
+npm run pm2:stop     # Stop
+npm run pm2:restart  # Restart
+npm run pm2:logs     # View logs
+
+# Auto-start on boot
 pm2 save
-pm2 startup  # Auto-start on boot
+pm2 startup
 ```
 
 ## Project Structure
