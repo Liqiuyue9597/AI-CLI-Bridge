@@ -274,7 +274,14 @@ export async function* streamCLI(
   child.stderr?.on("data", (chunk: Buffer) => {
     const msg = chunk.toString("utf-8");
     if (msg.includes("Error") || msg.includes("error")) {
-      push({ type: "error", content: msg, sessionId });
+      // 只取第一行有意义的错误信息，避免将 minified 源码等大量内容透传给用户
+      const firstMeaningfulLine =
+        msg.split("\n").find((l) => l.trim().length > 0) || msg;
+      const summary =
+        firstMeaningfulLine.length > 300
+          ? firstMeaningfulLine.slice(0, 300) + "…"
+          : firstMeaningfulLine;
+      push({ type: "error", content: summary, sessionId });
     }
   });
 

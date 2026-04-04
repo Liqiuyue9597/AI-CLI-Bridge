@@ -9,12 +9,16 @@ import {
   Partials,
 } from "discord.js";
 import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+import * as path from "node:path";
 import { ALL_COMMANDS } from "./commands.js";
 import { runClaudeStream, type StreamTarget } from "./core.js";
 import { sessionManager } from "./session.js";
 import { startLark } from "./lark.js";
 
-dotenv.config();
+// 固定读取项目根目录的 .env，避免因启动目录不同而读到其他项目的配置
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 // ── Discord 配置 ─────────────────────────────────────────────
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;

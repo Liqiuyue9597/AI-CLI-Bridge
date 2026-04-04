@@ -65,7 +65,12 @@ export async function runClaudeStream(
           resultSessionId = event.sessionId;
         }
       } else if (event.type === "error") {
-        accumulated += `\n\n> **Error:** ${event.content}`;
+        // 截断过长的错误信息（如 CLI Node 版本不兼容时 stderr 可能带有大量 minified 代码）
+        const errMsg =
+          event.content.length > 300
+            ? event.content.slice(0, 300) + "…"
+            : event.content;
+        accumulated += `\n\n> **Error:** ${errMsg}`;
       }
     }
   } catch (err) {
