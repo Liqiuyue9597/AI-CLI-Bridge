@@ -119,6 +119,28 @@ export async function startLark() {
             return;
           }
 
+          // 内置命令：reset / new — 重置会话，开始新对话
+          if (prompt.toLowerCase() === "reset" || prompt.toLowerCase() === "new") {
+            const had = sessionManager.resetSession(senderId);
+            try {
+              await client.im.message.reply({
+                path: { message_id: messageId },
+                data: {
+                  content: JSON.stringify({
+                    text: had
+                      ? "会话已重置，下次提问将开始新的对话。"
+                      : "当前没有活跃的会话。",
+                  }),
+                  msg_type: "text",
+                },
+              });
+            } catch (err) {
+              console.warn("[飞书] 发送 reset 回复失败:", (err as Error).message);
+            }
+            console.log(`[飞书] [reset] ${senderId} (had session: ${had})`);
+            return;
+          }
+
           // 前置检查（鉴权、速率限制、并发控制）
           const check = preCheck(senderId);
           if (!check.ok) {
