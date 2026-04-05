@@ -97,6 +97,32 @@ export async function runClaudeStream(
             : toolDisplay;
         await target.update(truncatedToolDisplay);
         lastUpdateTime = Date.now();
+      } else if ((event as any).type === "replace") {
+        // 文本被整体替换（Claude 工具调用后重写了 text block）
+        const replaceEvent = event as any;
+        const prevLen = replaceEvent.prevLength || 0;
+        toolStatus = "";
+
+        // 从 accumulated 中移除旧文本，替换为新文本
+        if (prevLen > 0 && accumulated.length >= prevLen) {
+          accumulated = accumulated.slice(0, accumulated.length - prevLen) + replaceEvent.content;
+        } else {
+          accumulated = replaceEvent.content;
+        }
+
+        if (replaceEvent.sessionId) {
+          resultSessionId = replaceEvent.sessionId;
+        }
+
+        // 替换后立即推送一次更新
+        const now = Date.now();
+        lastUpdateTime = now;
+        const full = getDisplayText() + " ▌";
+        const display =
+          full.length > MAX_MESSAGE_LENGTH
+            ? "...\n\n" + full.slice(full.length - MAX_MESSAGE_LENGTH + 5)
+            : full;
+        await target.update(display);
       } else if (event.type === "done") {
         if (accumulated === "" && event.content) {
           accumulated = event.content;

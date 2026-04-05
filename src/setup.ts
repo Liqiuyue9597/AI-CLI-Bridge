@@ -21,6 +21,7 @@ interface Config {
   // CLI
   cliPath: string;
   workDir: string;
+  claudeModel?: string;
 }
 
 function createRL(): readline.Interface {
@@ -80,6 +81,9 @@ function generateEnv(config: Config): string {
   lines.push("# ── AI CLI 工具 ──");
   lines.push(`CLI_PATH=${config.cliPath}`);
   lines.push(`CLAUDE_WORK_DIR=${config.workDir}`);
+  if (config.claudeModel) {
+    lines.push(`CLAUDE_MODEL=${config.claudeModel}`);
+  }
   lines.push("");
 
   return lines.join("\n");
@@ -199,6 +203,19 @@ async function main() {
 
   console.log(`  ✓ 使用: ${config.cliPath}`);
   console.log("");
+
+  // 模型选择（仅 claude 系 CLI 有效）
+  if (config.cliPath === "claude" || config.cliPath.includes("claude")) {
+    console.log("  可选模型（和 /model 命令中的名称一致）：");
+    console.log("    opus / sonnet / haiku / opusplan / sonnet[1m] / opus[1m]");
+    console.log("    也支持完整模型名如 claude-opus-4-6");
+    console.log("");
+    const modelInput = await ask(rl, "  指定模型（留空使用 CLI 默认）: ");
+    if (modelInput) {
+      config.claudeModel = modelInput;
+    }
+    console.log("");
+  }
 
   const defaultWorkDir = process.env.HOME || process.cwd();
   const workDir = await ask(rl, `  工作目录 [${defaultWorkDir}]: `);

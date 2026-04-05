@@ -34,7 +34,15 @@ interface ClaudeResultEvent {
   result?: string;
 }
 
-type ClaudeStreamJSON = ClaudeAssistantEvent | ClaudeResultEvent;
+interface ClaudeSystemEvent {
+  type: "system";
+  subtype?: string;       // 例如 "init"
+  cwd?: string;           // Claude 的工作目录
+  session_id?: string;    // CLI 分配的会话 ID
+  tools?: string[];       // 可用工具列表
+}
+
+type ClaudeStreamJSON = ClaudeAssistantEvent | ClaudeResultEvent | ClaudeSystemEvent;
 
 /**
  * CLI 适配器接口 - 不同的 AI CLI 工具实现这个接口
@@ -72,6 +80,12 @@ export const claudeAdapter: CLIAdapter = {
       args.push("--dangerously-skip-permissions");
     }
 
+    // 模型选择（仅官方 claude CLI 支持，claude-internal 不支持此参数）
+    const model = process.env.CLAUDE_MODEL;
+    if (model) {
+      args.push("--model", model);
+    }
+
     // 系统提示
     args.push("--append-system-prompt", buildSystemPrompt(workDir));
 
@@ -94,19 +108,30 @@ export const claudeAdapter: CLIAdapter = {
     const events: CLIStreamEvent[] = [];
 
     if (data.type === "assistant" && data.message?.content) {
+      const blocks = data.message.content;
+
       let blockIndex = 0;
-      for (const block of data.message.content) {
+      for (let i = 0; i < blocks.length; i++) {
+        const block = blocks[i];
         if (block.type === "text" && block.text) {
           const newText = block.text;
           const prevText = state.blockTexts.get(blockIndex) || "";
 
-          if (newText.length > prevText.length) {
+          if (prevText === "" && newText.length > 0) {
+            // 首次收到文本
+            state.blockTexts.set(blockIndex, newText);
+            events.push({ type: "text", content: newText, sessionId: state.sessionId });
+          } else if (newText === prevText) {
+            // 内容完全相同，跳过
+          } else if (newText.startsWith(prevText)) {
+            // 正常追加：newText 是 prevText 的延伸
             const delta = newText.slice(prevText.length);
             state.blockTexts.set(blockIndex, newText);
             events.push({ type: "text", content: delta, sessionId: state.sessionId });
-          } else if (prevText === "" && newText.length > 0) {
+          } else {
+            // 文本被替换（不是简单追加），需要用 replace 事件通知上游重置
             state.blockTexts.set(blockIndex, newText);
-            events.push({ type: "text", content: newText, sessionId: state.sessionId });
+            events.push({ type: "replace" as any, content: newText, sessionId: state.sessionId, prevLength: prevText.length } as any);
           }
           blockIndex++;
         } else if (block.type === "tool_use") {
@@ -121,6 +146,8 @@ export const claudeAdapter: CLIAdapter = {
         events.push({ type: "text", content: resultData.result, sessionId: state.sessionId });
       }
       events.push({ type: "done", content: state.fullText || resultData.result || "", sessionId: state.sessionId });
+    } else if (data.type === "system") {
+      // system init 事件目前仅用于日志，不产生前端事件
     }
 
     return events.length > 0 ? events : null;
